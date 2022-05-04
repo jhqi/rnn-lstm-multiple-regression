@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from torch.utils.data import DataLoader,Dataset
 from torch import nn
 from utils import *
@@ -116,10 +117,17 @@ x_test_pred = list(tmp_df.iloc[train_size:].values)
 y_test_pred = test_pred.numpy()
 y_test_pred = y_test_pred * dis_std + dis_mean
 
-plt.figure(dpi=72, figsize=(24, 10))
+plt.figure(dpi=300, figsize=(24, 10))
+ax = plt.axes()
+ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
+ax.xaxis.set_minor_locator(ticker.MultipleLocator(20))
 plt.plot(x_all, y_all, color='blue', linewidth=3, alpha=0.3, label='true')
 plt.plot(x_train_pred, y_train_pred, color='red', linewidth=1, label='train_fit')
 plt.plot(x_test_pred, y_test_pred, color='green', linewidth=1, label='test_pred')
 plt.legend()
+plt.title('Predict result of discharge',fontsize=24)
+plt.xticks(rotation=45)
+plt.xlabel('date',fontsize=20)
+plt.ylabel('discharge',fontsize=20)
 plt.savefig('./mlp_res.png')
 # plt.show()

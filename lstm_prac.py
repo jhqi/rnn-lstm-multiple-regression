@@ -1,26 +1,34 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from torch.utils.data import DataLoader
 from torch import nn
 from utils import *
+# import nni
 
 device=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 seed = 7
 setup_seed(seed)
 
-df = pd.read_csv('./datas/61800400.csv')
+df = pd.read_csv('./datas/61801700.csv')
 
 cfg = {
     'TIME_STEP': 30,
-    'BATCH_SIZE': 64,
-    'BINS': 6,
+    'BATCH_SIZE': 32,
+    'BINS': 5,
     'num_layers': 2,  # lstm层数
-    'hidden_dim': 32,  # lstm隐藏层大小
-    'lr': 0.01
+    'hidden_dim': [64],  # lstm隐藏层大小
+    'lr': 0.01,
+    'fc_dropout':0.1
 }
+# tuner=nni.get_next_parameters()
+# cfg.update(tuner)
+
 continuous_cols = ['prcp', 'RH', 'tmax', 'tmin', 'vp']
 
 c = Cutter(continuous_cols, bins=cfg['BINS'], missing=32700)
@@ -47,15 +55,15 @@ test_loader = DataLoader(dataset=test_dataset, batch_size=cfg['BATCH_SIZE'], shu
 input_dim = 6
 output_dim = 1
 
-model = MyLSTM(input_dim=input_dim, hidden_dim=cfg['hidden_dim'], num_layers=cfg['num_layers'], output_dim=output_dim)
+model = MyLSTM(input_dim=input_dim, hidden_dim=cfg['hidden_dim'], num_layers=cfg['num_layers'], output_dim=output_dim, fc_dropout=cfg['fc_dropout'])
 model = model.cuda()
 loss_func = nn.MSELoss(reduction='mean')
 optimizer = torch.optim.Adam(model.parameters(), lr=cfg['lr'])
 
-EPOCHS = 200
+EPOCHS = 300
 
 # 训练
-min_test_loss = float('inf')
+min_test_loss = float(1)
 for epoch in range(1, EPOCHS + 1):
     model.train()
     total_train_loss = 0
@@ -76,10 +84,12 @@ for epoch in range(1, EPOCHS + 1):
     test_mean_loss = test_step(model, test_loader, loss_func)
     train_mean_loss = total_train_loss / train_num
 
-    if train_mean_loss < 0.01 and test_mean_loss < min_test_loss:
+    if train_mean_loss < 0.1 and test_mean_loss < min_test_loss:
         min_test_loss = test_mean_loss
         torch.save(model, './lstm_model.pth')
     print(f"epoch:{epoch}, train_mean_loss:{train_mean_loss}, test_mean_loss={test_mean_loss}")
+
+# nni.report_final_result(min_test_loss)
 
 x_all = list(df['date'].values)
 y_all = df['discharge'].values
@@ -100,10 +110,17 @@ x_test_pred = list(tmp_df.iloc[train_size:].values)
 y_test_pred = test_pred.numpy()
 y_test_pred = y_test_pred * dis_std + dis_mean
 
-plt.figure(dpi=72, figsize=(24, 10))
+plt.figure(dpi=300, figsize=(24, 10))
+ax = plt.axes()
+ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
+ax.xaxis.set_minor_locator(ticker.MultipleLocator(20))
 plt.plot(x_all, y_all, color='blue', linewidth=3, alpha=0.3, label='true')
 plt.plot(x_train_pred, y_train_pred, color='red', linewidth=1, label='train_fit')
 plt.plot(x_test_pred, y_test_pred, color='green', linewidth=1, label='test_pred')
 plt.legend()
+plt.title('Predict result of discharge',fontsize=24)
+plt.xticks(rotation=45)
+plt.xlabel('date',fontsize=20)
+plt.ylabel('discharge',fontsize=20)
 plt.savefig('./lstm_res.png')
 # plt.show()

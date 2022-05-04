@@ -95,32 +95,48 @@ class MyDataset(Dataset):
 
 
 class MyRNN(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, fc_dropout):
         super(MyRNN, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.rnn = nn.RNN(input_dim, hidden_dim, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.rnn = nn.RNN(input_dim, hidden_dim[0], num_layers, batch_first=True)
+        if len(hidden_dim)==1:
+            self.fc = nn.Linear(hidden_dim[0], output_dim)
+        else: #最多两个隐藏层
+            self.fc=nn.Sequential(
+                nn.Linear(hidden_dim[0], hidden_dim[1]),
+                nn.Tanh(),
+                nn.Dropout(fc_dropout),
+                nn.Linear(hidden_dim[1],output_dim)
+            )
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).requires_grad_().cuda()
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim[0]).requires_grad_().cuda()
         out, hn = self.rnn(x, h0.detach())
         out = self.fc(out[:, -1, :])
         return out
 
 
 class MyLSTM(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers, output_dim):
+    def __init__(self, input_dim, hidden_dim, num_layers, output_dim, fc_dropout):
         super(MyLSTM, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
 
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_dim, output_dim)
+        self.lstm = nn.LSTM(input_dim, hidden_dim[0], num_layers, batch_first=True)
+        if len(hidden_dim)==1:
+            self.fc = nn.Linear(hidden_dim[0], output_dim)
+        else: #最多两个隐藏层
+            self.fc=nn.Sequential(
+                nn.Linear(hidden_dim[0], hidden_dim[1]),
+                nn.Tanh(),
+                nn.Dropout(fc_dropout),
+                nn.Linear(hidden_dim[1],output_dim)
+            )
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).requires_grad_().cuda()
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim).requires_grad_().cuda()
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim[0]).requires_grad_().cuda()
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_dim[0]).requires_grad_().cuda()
         out, (hn, cn) = self.lstm(x, (h0.detach(), c0.detach()))
         out = self.fc(out[:, -1, :])
         return out
@@ -132,7 +148,7 @@ def setup_seed(seed):
     torch.manual_seed(seed)  # cpu
     torch.cuda.manual_seed_all(seed)  # 并行gpu
     torch.backends.cudnn.deterministic = True  # cpu/gpu结果一致
-    torch.backends.cudnn.benchmark = False  # 训练集变化不大时使训练加速
+    torch.backends.cudnn.benchmark = False
 
 
 def test_step(model, test_loader, loss_func):
@@ -144,7 +160,6 @@ def test_step(model, test_loader, loss_func):
             test_num += len(y)
             X = X.cuda()
             y = y.cuda()
-            test_num += len(y)
             pred = model(X)
             loss = loss_func(pred.view(-1), y.view(-1))
             total_test_loss += loss.item() * len(y)

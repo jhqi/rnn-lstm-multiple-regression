@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from torch.utils.data import DataLoader
 from torch import nn
 from utils import *
@@ -18,8 +19,9 @@ cfg = {
     'BATCH_SIZE': 64,
     'BINS': 6,
     'num_layers': 2,  # lstm层数
-    'hidden_dim': 32,  # lstm隐藏层大小
-    'lr': 0.001
+    'hidden_dim': [32],  # lstm隐藏层大小
+    'lr': 0.001,
+    'fc_dropout':0.2
 }
 continuous_cols = ['prcp', 'RH', 'tmax', 'tmin', 'vp']
 
@@ -47,7 +49,7 @@ test_loader = DataLoader(dataset=test_dataset, batch_size=cfg['BATCH_SIZE'], shu
 input_dim = 6
 output_dim = 1
 
-model = MyRNN(input_dim=input_dim, hidden_dim=cfg['hidden_dim'], num_layers=cfg['num_layers'], output_dim=output_dim)
+model = MyRNN(input_dim=input_dim, hidden_dim=cfg['hidden_dim'], num_layers=cfg['num_layers'], output_dim=output_dim, fc_dropout=cfg['fc_dropout'])
 model = model.cuda()
 loss_func = nn.MSELoss(reduction='mean')
 optimizer = torch.optim.Adam(model.parameters(), lr=cfg['lr'])
@@ -100,10 +102,17 @@ x_test_pred = list(tmp_df.iloc[train_size:].values)
 y_test_pred = test_pred.numpy()
 y_test_pred = y_test_pred * dis_std + dis_mean
 
-plt.figure(dpi=72, figsize=(24, 10))
+plt.figure(dpi=300, figsize=(24, 10))
+ax = plt.axes()
+ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
+ax.xaxis.set_minor_locator(ticker.MultipleLocator(20))
 plt.plot(x_all, y_all, color='blue', linewidth=3, alpha=0.3, label='true')
 plt.plot(x_train_pred, y_train_pred, color='red', linewidth=1, label='train_fit')
 plt.plot(x_test_pred, y_test_pred, color='green', linewidth=1, label='test_pred')
 plt.legend()
+plt.title('Predict result of discharge',fontsize=24)
+plt.xticks(rotation=45)
+plt.xlabel('date',fontsize=20)
+plt.ylabel('discharge',fontsize=20)
 plt.savefig('./rnn_res.png')
 # plt.show()
