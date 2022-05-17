@@ -1,0 +1,5 @@
+Python=3.8
+
+PyTorch==1.8.1（GPU版）
+
+其它numpy，pandas，matplotlib版本应该随意

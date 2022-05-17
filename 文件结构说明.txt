@@ -1,0 +1,10 @@
+datas/	三份数据集
+error_value/	每种方法预测结果的评价指标（RMSE，MAE，MAPE）
+fig_res/	预测曲线图
+pred_value/	测试集的具体预测数值
+
+xxx_prac.py	每种方法的执行脚本
+
+utils.py	工具脚本，模型类和所需函数
+
+超参数.docx	三份数据集，RNN，LSTM，AM-LSTM三种方法所用超参数。MLP和SVR没调，可能意义不大

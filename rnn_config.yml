@@ -1,0 +1,15 @@
+experimentName: rnn
+searchSpaceFile: rnn_search_space.json
+trialCommand: python rnn_prac.py
+trialCodeDirectory: .
+trialGpuNumber: 1
+trialConcurrency: 1
+maxExperimentDuration: 6h
+maxTrialNumber: 2000
+tuner:
+  name: TPE
+  classArgs:
+    optimize_mode: minimize
+trainingService:
+  platform: local
+  useActiveGpu: True

@@ -1,32 +1,41 @@
+import os
 import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from torch.utils.data import DataLoader,Dataset
+from torch.utils.data import DataLoader
 from torch import nn
 from utils import *
-import os
+
+
+seed = 991217
+setup_seed(seed)
 
 plt.rcParams['font.sans-serif']=['SimHei'] #解决中文显示
 plt.rcParams['axes.unicode_minus'] = False #解决符号无法显示
 
-
-seed=991217
-setup_seed(seed)
-
-file_name=['61800400','61801700','67066000']
+# file_name=['61800400','61801700','67066000']
+file_name=['61800400']
 
 for tmp_file_name in file_name:
     tmp_file_path=os.path.join('./datas',tmp_file_name+'.csv')
     df = pd.read_csv(tmp_file_path)
 
-    continuous_cols=['prcp','RH','tmax','tmin','vp']
-    bins=6
-    missing=32700
-    batch_size=128
+    cfg = {
+        'TIME_STEP': 20,
+        'BATCH_SIZE': 64,
+        'BINS': 6,
+        'num_layers': 1,  # lstm层数
+        'hidden_dim': 64,  # lstm隐藏层大小
+        'lr': 0.005,
+        'fc_dropout':0.3,
+        'predict_len':1, #这个不算超参，表示预测未来一个值
+    }
 
-    c = Cutter(continuous_cols, bins=bins, missing=missing)
+    continuous_cols = ['prcp', 'RH', 'tmax', 'tmin', 'vp']
+
+    c = Cutter(continuous_cols, bins=cfg['BINS'], missing=32700)
     c.fit(df)
     c.transform(df)
 
@@ -39,43 +48,26 @@ for tmp_file_name in file_name:
     dis_mean = np.mean(traindf['discharge'].values)
     dis_std = np.std(traindf['discharge'].values)
 
+    X, Y = get_input(df, cfg['TIME_STEP'], cfg['TIME_STEP'], train_size - 1, dis_mean, dis_std)
+    train_dataset = MyDataset(X, Y)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=cfg['BATCH_SIZE'], shuffle=True)
 
-    # 构建数据集
-    class MyDataset(Dataset):
-        def __init__(self, df, continuous_cols, label, dis_mean, dis_std):
-            self.X = df[continuous_cols].values.astype(np.float32)
-            self.Y = df[label].values.reshape(-1).astype(np.float32)
+    X, Y = get_input(df, cfg['TIME_STEP'], train_size, len(df) - 1, dis_mean, dis_std)
+    test_dataset = MyDataset(X, Y)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=cfg['BATCH_SIZE'], shuffle=False)
 
-            self.Y = (self.Y - dis_mean) / dis_std
+    input_dim = 6
+    output_dim = 1
 
-        def __getitem__(self, index):
-            x = self.X[index, :]
-            y = self.Y[index]
-            return x, y
-
-        def __len__(self):
-            return self.X.shape[0]
-
-    train_dataset=MyDataset(traindf, continuous_cols, 'discharge', dis_mean, dis_std)
-    test_dataset=MyDataset(testdf, continuous_cols, 'discharge', dis_mean, dis_std)
-
-    train_loader=DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader=DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    model=nn.Sequential(
-        nn.Linear(5, 8),
-        nn.Tanh(),
-        nn.Dropout(0.2),
-        nn.Linear(8,1)
-    )
-    model=model.cuda()
-
-    EPOCHS=200
+    model = MyLSTM_AM(input_dim=input_dim, hidden_dim=cfg['hidden_dim'], num_layers=cfg['num_layers'], output_dim=output_dim, fc_dropout=cfg['fc_dropout'],predict_len=cfg['predict_len'],time_step=cfg['TIME_STEP'])
+    model = model.cuda()
     loss_func = nn.MSELoss(reduction='mean')
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg['lr'])
+
+    EPOCHS = 300
 
     # 训练
-    min_test_loss = float('inf')
+    min_test_loss = float(5)
     for epoch in range(1, EPOCHS + 1):
         model.train()
         total_train_loss = 0
@@ -96,22 +88,25 @@ for tmp_file_name in file_name:
         test_mean_loss = test_step(model, test_loader, loss_func)
         train_mean_loss = total_train_loss / train_num
 
-        if test_mean_loss < min_test_loss:
+        if train_mean_loss < 0.2 and test_mean_loss < min_test_loss:
             min_test_loss = test_mean_loss
-            torch.save(model, './mlp_model.pth')
+            no_better_epochs=0
+            torch.save(model, './am_lstm_model.pth')
+
         print(f"epoch:{epoch}, train_mean_loss:{train_mean_loss}, test_mean_loss={test_mean_loss}")
+
 
     x_all = list(df['date'].values)
     y_all = df['discharge'].values
 
-    model = torch.load('./mlp_model.pth', map_location=torch.device('cuda'))
+    model = torch.load('./am_lstm_model.pth', map_location=torch.device('cuda'))
     model.eval()
 
     # 检验训练集的拟合
-    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=cfg['BATCH_SIZE'], shuffle=False)
     train_pred = get_pred(model, train_loader)
     tmp_df = df['date']
-    x_train_pred = list(tmp_df.iloc[:train_size].values.reshape(-1))
+    x_train_pred = list(tmp_df.iloc[cfg['TIME_STEP']:train_size].values.reshape(-1))
     y_train_pred = train_pred.numpy().reshape(-1)
     y_train_pred = y_train_pred * dis_std + dis_mean
 
@@ -133,14 +128,14 @@ for tmp_file_name in file_name:
     plt.xlabel('日期',fontsize=20)
     plt.ylabel('水流量',fontsize=20)
 
-    plt.savefig('./fig_res/bp_'+tmp_file_name+'.png')
+    plt.savefig('./fig_res/am_lstm_'+tmp_file_name+'.png')
     plt.close('all')
 
 
     #计算指标
     error_dic=calc_error(y_test_pred.reshape(-1),y_all[train_size:].reshape(-1))
     error_df=pd.DataFrame(error_dic,index=[0])
-    error_df.to_csv('./error_value/bp_'+tmp_file_name+'.csv',index=False)
+    error_df.to_csv('./error_value/am_lstm_'+tmp_file_name+'.csv',index=False)
 
     #写入测试集的真实结果，重复就重复吧
     test_gt_dic={
@@ -156,6 +151,6 @@ for tmp_file_name in file_name:
         "discharge":list(y_test_pred)
     }
     pred_value_df=pd.DataFrame(pred_value_dic)
-    pred_value_df.to_csv('./pred_value/'+tmp_file_name+'_bp.csv',index=False)
+    pred_value_df.to_csv('./pred_value/'+tmp_file_name+'_am_lstm.csv',index=False)
 
     # plt.show()
